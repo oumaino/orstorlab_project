@@ -135,3 +135,127 @@ for folder_name in ("app", "tests", "docs", "build"):  # Parcourt les quatre nom
 
 # Cette ligne n’est dans aucune boucle : elle s’exécute après toute l’analyse.
 print(f"\nTotal S1 : {finding_count}")  # Affiche le nombre total de constats S1.
+
+
+
+
+
+# --- 9. Charger la configuration CI ---
+
+print("\n--- Analyse des workflows : S2, S3 et S4 ---")  # Affiche le titre.
+
+ci_path = snapshot / "ci.json"  # Construit le chemin du fichier de configuration.
+
+with ci_path.open(encoding="utf-8") as file:  # Ouvre le fichier en lecture.
+    ci_data = json.load(file)  # Convertit son contenu JSON en dictionnaire Python.
+
+# Crée un dictionnaire permettant de retrouver un token par son identifiant.
+# Exemple d’accès : tokens_by_id["release-active"].
+tokens_by_id = {
+    token["token_id"]: token  # Associe chaque identifiant au token complet.
+    for token in inventory["tokens"]  # Parcourt les tokens de l’inventaire.
+}
+
+ci_finding_count = 0  # Initialise le compteur des violations S2, S3 et S4.
+
+
+# --- 10. Examiner chaque workflow ---
+
+for workflow in ci_data["workflows"]:  # Parcourt les workflows de ci.json.
+
+    workflow_id = workflow["workflow_id"]  # Récupère le nom du workflow.
+    active_refs = []  # Prépare la liste de ses références à des tokens actifs.
+
+    for token_id in workflow["secret_refs"]:  # Parcourt les identifiants référencés.
+
+        token = tokens_by_id.get(token_id)  # Cherche le token ; renvoie None s’il est inconnu.
+
+        if token is None:  # Si l’identifiant n’existe pas dans l’inventaire...
+            print(
+                f"[À VÉRIFIER] {workflow_id} : référence inconnue {token_id}"
+            )  # Signale l’incertitude sans inventer l’état du token.
+            continue  # Passe à la référence suivante.
+
+        if token["state"] == "active_in_fixture":  # Vérifie si ce token est actif.
+            active_refs.append(token_id)  # Ajoute uniquement son identifiant à la liste.
+
+    # Transforme les identifiants en texte lisible, sans afficher leurs valeurs.
+    active_refs_text = ", ".join(active_refs)
+
+
+    # --- S2 : code non fiable avec accès à un secret actif ---
+
+    # Une liste non vide est considérée comme vraie dans une condition Python.
+    if workflow["runs_untrusted_code"] and active_refs:
+        ci_finding_count += 1  # Compte cette violation S2.
+
+        print(f"\n[S2] Workflow : {workflow_id}")  # Identifie le workflow concerné.
+        print(
+            f"Preuve : runs_untrusted_code=true ; active secret_refs={active_refs_text}"
+        )  # Affiche les deux conditions qui justifient le constat.
+        print(
+            "Raison : du code non fiable dispose d'un secret actif."
+        )  # Explique le risque, sans prétendre qu’une attaque a eu lieu.
+        print(
+            "Action : retirer les secrets actifs de ce workflow "
+            "ou isoler leur utilisation dans un workflow fiable."
+        )  # Propose une correction.
+
+
+    # --- S3 : vérifier les permissions ---
+
+    permissions = workflow["permissions"]  # Récupère les permissions configurées.
+
+    # L’exception release-write exige simultanément ces deux conditions.
+    release_write_allowed = (
+        workflow["trigger"] == "tag"  # Le workflow est déclenché sur un tag.
+        and not workflow["runs_untrusted_code"]  # Il n’exécute pas de code non fiable.
+    )
+
+    # read-only est toujours accepté par la politique.
+    # release-write est accepté uniquement lorsque l’exception s’applique.
+    permissions_allowed = (
+        permissions == "read-only"
+        or (permissions == "release-write" and release_write_allowed)
+    )
+
+    if not permissions_allowed:  # Si les permissions ne respectent pas la politique...
+        ci_finding_count += 1  # ...compte une violation S3.
+
+        print(f"\n[S3] Workflow : {workflow_id}")  # Identifie le workflow concerné.
+        print(
+            f"Preuve : permissions={permissions} ; "
+            f"trigger={workflow['trigger']} ; "
+            f"runs_untrusted_code={workflow['runs_untrusted_code']}"
+        )  # Affiche les paramètres ayant servi à la décision.
+        print(
+            "Raison : les permissions ne respectent pas la politique S3."
+        )  # Explique le constat.
+        print(
+            "Action : utiliser read-only ; release-write est permis "
+            "uniquement sur tag sans code non fiable."
+        )  # Rappelle les permissions autorisées.
+
+
+    # --- S4 : journalisation de l’environnement avec un secret actif ---
+
+    if workflow["log_environment"] and active_refs:  # Vérifie les deux conditions S4.
+        ci_finding_count += 1  # Compte cette violation S4.
+
+        print(f"\n[S4] Workflow : {workflow_id}")  # Identifie le workflow concerné.
+        print(
+            f"Preuve : log_environment=true ; active secret_refs={active_refs_text}"
+        )  # Affiche des identifiants, jamais les valeurs des tokens.
+        print(
+            "Raison : l'affichage de l'environnement risque d'exposer un secret actif."
+        )  # Explique le risque modélisé par l’exercice.
+        print(
+            "Action : désactiver la journalisation complète de l'environnement."
+        )  # Propose une correction.
+
+
+# Ces lignes sont hors de la boucle : elles s’exécutent après tous les workflows.
+print(f"\nTotal S2–S4 : {ci_finding_count}")  # Affiche le total des violations CI.
+print(
+    f"Total S1–S4 : {finding_count + ci_finding_count}"
+)  # Additionne les constats texte et CI ; S5 n’est pas encore implémentée.
