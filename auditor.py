@@ -1,7 +1,7 @@
 import argparse  # Permet de récupérer les arguments écrits dans le terminal.
 import json  # Permet de convertir le contenu JSON en objets Python.
 from pathlib import Path  # Permet de manipuler les chemins des fichiers et dossiers.
-
+import fnmatch  # Permet de comparer un chemin à un motif comme "app/*".
 
 # --- 1. Récupérer le chemin du snapshot ---
 
@@ -259,3 +259,62 @@ print(f"\nTotal S2–S4 : {ci_finding_count}")  # Affiche le total des violation
 print(
     f"Total S1–S4 : {finding_count + ci_finding_count}"
 )  # Additionne les constats texte et CI ; S5 n’est pas encore implémentée.
+
+
+
+# --- 11. Vérifier les fichiers publiés comme artefacts : S5 ---
+
+print("\n--- Analyse des artefacts : S5 ---")  # Affiche le titre.
+
+# Ces deux chemins sont déclarés sensibles par la politique de l’exercice.
+sensitive_paths = {"app/env.txt", "docs/rotation.txt"}
+
+content_paths = set()  # Prépare un ensemble de chemins uniques.
+
+for folder_name in ("app", "tests", "docs", "build"):  # Parcourt les dossiers autorisés.
+    folder = snapshot / folder_name  # Construit le chemin du dossier.
+
+    for file_path in folder.rglob("*"):  # Explore aussi ses sous-dossiers.
+        if file_path.is_file():  # Conserve uniquement les fichiers.
+            relative_path = file_path.relative_to(snapshot).as_posix()  # Uniformise le chemin.
+            content_paths.add(relative_path)  # Ajoute le chemin à l’ensemble.
+
+artifact_finding_count = 0  # Initialise le compteur S5.
+
+for workflow in ci_data["workflows"]:  # Examine chaque workflow.
+    workflow_id = workflow["workflow_id"]  # Récupère son identifiant.
+
+    for relative_path in sorted(content_paths):  # Parcourt les fichiers fournis dans un ordre stable.
+
+        if relative_path not in sensitive_paths:  # Si le fichier n’est pas déclaré sensible...
+            continue  # ...passe au suivant.
+
+        matching_patterns = []  # Prépare les motifs qui publient ce fichier sensible.
+
+        for pattern in workflow["artifact_paths"]:  # Examine chaque motif d’artefact.
+            if fnmatch.fnmatchcase(relative_path, pattern):  # Compare le chemin complet au motif.
+                matching_patterns.append(pattern)  # Conserve le motif correspondant.
+
+        if matching_patterns:  # Au moins un motif publie ce fichier sensible.
+            artifact_finding_count += 1  # Compte un constat par workflow et fichier sensible.
+
+            print(f"\n[S5] Workflow : {workflow_id}")  # Identifie le workflow.
+            print(f"Fichier sensible : {relative_path}")  # Identifie le fichier publié.
+            print(
+                f"Preuve : artifact_paths={matching_patterns} correspond à {relative_path}"
+            )  # Montre les motifs responsables.
+            print(
+                "Raison : la politique interdit de publier ce fichier sensible, "
+                "même si son token actuel est révoqué."
+            )  # Explique pourquoi la rotation ne supprime pas ce risque.
+            print(
+                "Action : limiter les artefacts aux fichiers non sensibles nécessaires, "
+                "par exemple build/report.txt."
+            )  # Propose une liste de fichiers explicitement autorisés.
+
+print(f"\nTotal S5 : {artifact_finding_count}")  # Affiche le nombre de constats S5.
+
+# Additionne les résultats des cinq règles.
+total_findings = finding_count + ci_finding_count + artifact_finding_count
+
+print(f"Total S1–S5 : {total_findings}")  # Affiche le total général.
