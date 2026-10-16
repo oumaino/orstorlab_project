@@ -318,3 +318,54 @@ print(f"\nTotal S5 : {artifact_finding_count}")  # Affiche le nombre de constats
 total_findings = finding_count + ci_finding_count + artifact_finding_count
 
 print(f"Total S1–S5 : {total_findings}")  # Affiche le total général.
+
+
+
+# --- 12. Documenter les occurrences bénignes ---
+
+print("\n--- Décisions bénignes : aucune exposition active S1 ---")  # Affiche le titre.
+
+benign_count = 0  # Compte les occurrences bénignes trouvées.
+
+for relative_path in sorted(content_paths):  # Réutilise les chemins collectés pour S5.
+    file_path = snapshot / relative_path  # Reconstruit le chemin du fichier.
+    lines = file_path.read_text(encoding="utf-8").splitlines()  # Lit ses lignes.
+
+    for line_number, line in enumerate(lines, start=1):  # Numérote les lignes dès 1.
+        for token in inventory["tokens"]:  # Examine chaque token connu.
+
+            # Ne retient que les deux états explicitement bénins pour S1.
+            if token["state"] not in ("revoked_in_fixture", "test_only"):
+                continue  # Ignore les tokens actifs dans cette partie.
+
+            if not token["value"] or token["value"] not in line:
+                continue  # Ignore les valeurs vides ou absentes de la ligne.
+
+            benign_count += 1  # Compte cette occurrence bénigne.
+
+            evidence = line  # Prépare une copie de la ligne pour la preuve.
+
+            # Masque toutes les valeurs connues, y compris un éventuel token actif
+            # qui pourrait apparaître sur la même ligne.
+            for known_token in sorted(
+                inventory["tokens"],  # Liste des tokens connus.
+                key=lambda item: len(item["value"]),  # Trie par longueur de valeur.
+                reverse=True,  # Masque les valeurs longues en premier.
+            ):
+                if known_token["value"]:  # Évite les remplacements de chaînes vides.
+                    evidence = evidence.replace(
+                        known_token["value"],  # Valeur à masquer.
+                        f"[REDACTED:{known_token['token_id']}]",  # Conserve l’identifiant.
+                    )
+
+            if token["state"] == "test_only":  # Cas d’un marqueur de test.
+                reason = "L'inventaire classe ce token comme marqueur de test."
+            else:  # L’autre état autorisé dans cette boucle est revoked_in_fixture.
+                reason = "L'inventaire indique que ce token est révoqué."
+
+            print(f"\n[BÉNIN POUR S1] {relative_path}, ligne {line_number}")  # Localisation.
+            print(f"Token : {token['token_id']}")  # Identifiant uniquement.
+            print(f"Preuve : {evidence}")  # Ligne avec valeurs masquées.
+            print(f"Justification : {reason}")  # Explique la décision.
+
+print(f"\nTotal des occurrences bénignes : {benign_count}")  # Affiche le bilan.
