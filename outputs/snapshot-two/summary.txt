@@ -1,0 +1,29 @@
+Audit : snapshot-two
+Risques détectés : 2
+Décisions bénignes : 3
+
+[S1] docs/rotation.txt
+Ligne : 2
+Preuve : "Temporary troubleshooting copy: [REDACTED:release-rotated]"
+Raison : Un token actif apparaît en clair.
+Action : Retirer la copie et prévoir le remplacement du token exposé.
+
+[S5] ci.json
+Workflow : pr-build
+Preuve : {"sensitive_path": "app/env.txt", "matching_patterns": ["app/*"]}
+Raison : Un fichier déclaré sensible est publié comme artefact.
+Action : Limiter les artefacts aux fichiers non sensibles nécessaires.
+
+--- Décisions bénignes pour S1 ---
+
+app/env.txt, ligne 2 — release-active
+Preuve : RELEASE_TOKEN=[REDACTED:release-active]
+Justification : L'inventaire indique que ce token est révoqué.
+
+docs/rotation.txt, ligne 1 — release-active
+Preuve : Rotation complete: [REDACTED:release-active] is revoked in this fixture.
+Justification : L'inventaire indique que ce token est révoqué.
+
+tests/mock.txt, ligne 2 — local-test
+Preuve : API_TOKEN=[REDACTED:local-test]
+Justification : L'inventaire classe ce token comme marqueur de test.

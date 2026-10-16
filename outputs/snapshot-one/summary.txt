@@ -1,0 +1,43 @@
+Audit : snapshot-one
+Risques détectés : 5
+Décisions bénignes : 2
+
+[S1] app/env.txt
+Ligne : 2
+Preuve : "RELEASE_TOKEN=[REDACTED:release-active]"
+Raison : Un token actif apparaît en clair.
+Action : Retirer la copie et prévoir le remplacement du token exposé.
+
+[S2] ci.json
+Workflow : pr-build
+Preuve : {"runs_untrusted_code": true, "active_secret_refs": ["release-active"]}
+Raison : Du code non fiable dispose d'un secret actif.
+Action : Retirer les secrets actifs ou isoler leur utilisation dans un workflow fiable.
+
+[S3] ci.json
+Workflow : pr-build
+Preuve : {"permissions": "write-all", "trigger": "pull_request", "runs_untrusted_code": true}
+Raison : Les permissions ne respectent pas la politique S3.
+Action : Utiliser read-only, ou release-write uniquement sur tag sans code non fiable.
+
+[S4] ci.json
+Workflow : pr-build
+Preuve : {"log_environment": true, "active_secret_refs": ["release-active"]}
+Raison : La journalisation complète de l'environnement risque d'exposer un secret actif.
+Action : Désactiver la journalisation complète de l'environnement.
+
+[S5] ci.json
+Workflow : pr-build
+Preuve : {"sensitive_path": "app/env.txt", "matching_patterns": ["app/env.txt"]}
+Raison : Un fichier déclaré sensible est publié comme artefact.
+Action : Limiter les artefacts aux fichiers non sensibles nécessaires.
+
+--- Décisions bénignes pour S1 ---
+
+docs/rotation.txt, ligne 1 — old-docs
+Preuve : Rotation draft: old token [REDACTED:old-docs] was revoked in this fixture.
+Justification : L'inventaire indique que ce token est révoqué.
+
+tests/mock.txt, ligne 2 — local-test
+Preuve : API_TOKEN=[REDACTED:local-test]
+Justification : L'inventaire classe ce token comme marqueur de test.

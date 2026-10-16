@@ -478,3 +478,40 @@ with report_path.open("w", encoding="utf-8") as file:  # Ouvre le fichier en éc
     file.write("\n")  # Termine le fichier par un saut de ligne.
 
 print(f"\nRapport JSON enregistré : {report_path}")  # Confirme l’emplacement.
+
+
+# --- 14. Enregistrer un résumé lisible ---
+
+summary_path = output_dir / "summary.txt"  # Chemin du résumé.
+
+with summary_path.open("w", encoding="utf-8") as file:
+    file.write(f"Audit : {snapshot.name}\n")  # Identifie le snapshot.
+    file.write(f"Risques détectés : {len(findings)}\n")
+    file.write(f"Décisions bénignes : {len(benign_decisions)}\n")
+
+    for finding in findings:  # Présente chaque risque.
+        file.write(f"\n[{finding['rule_id']}] {finding['path']}\n")
+
+        if "line" in finding:  # Ajoute la ligne pour les constats texte.
+            file.write(f"Ligne : {finding['line']}\n")
+
+        if "workflow_id" in finding:  # Identifie le workflow pour les constats CI.
+            file.write(f"Workflow : {finding['workflow_id']}\n")
+
+        # Convertit la preuve en texte, qu’elle soit une chaîne ou un dictionnaire.
+        evidence_text = json.dumps(finding["evidence"], ensure_ascii=False)
+        file.write(f"Preuve : {evidence_text}\n")
+        file.write(f"Raison : {finding['rationale']}\n")
+        file.write(f"Action : {finding['next_action']}\n")
+
+    file.write("\n--- Décisions bénignes pour S1 ---\n")
+
+    for decision in benign_decisions:  # Explique les occurrences exclues de S1.
+        file.write(
+            f"\n{decision['path']}, ligne {decision['line']} "
+            f"— {decision['token_id']}\n"
+        )
+        file.write(f"Preuve : {decision['evidence']}\n")
+        file.write(f"Justification : {decision['rationale']}\n")
+
+print(f"Résumé enregistré : {summary_path}")  # Confirme l’enregistrement.
