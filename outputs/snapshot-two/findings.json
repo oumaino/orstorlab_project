@@ -1,0 +1,61 @@
+{
+  "snapshot": "snapshot-two",
+  "finding_count": 2,
+  "findings": [
+    {
+      "rule_id": "S1",
+      "path": "docs/rotation.txt",
+      "line": 2,
+      "token_id": "release-rotated",
+      "evidence": "Temporary troubleshooting copy: [REDACTED:release-rotated]",
+      "rationale": "Un token actif apparaît en clair.",
+      "next_action": "Retirer la copie et prévoir le remplacement du token exposé."
+    },
+    {
+      "rule_id": "S5",
+      "path": "ci.json",
+      "workflow_id": "pr-build",
+      "evidence": {
+        "sensitive_path": "app/env.txt",
+        "matching_patterns": [
+          "app/*"
+        ]
+      },
+      "rationale": "Un fichier déclaré sensible est publié comme artefact.",
+      "next_action": "Limiter les artefacts aux fichiers non sensibles nécessaires."
+    }
+  ],
+  "benign_decision_count": 3,
+  "benign_decisions": [
+    {
+      "rule_id": "S1",
+      "decision": "suppressed",
+      "path": "app/env.txt",
+      "line": 2,
+      "token_id": "release-active",
+      "state": "revoked_in_fixture",
+      "evidence": "RELEASE_TOKEN=[REDACTED:release-active]",
+      "rationale": "L'inventaire indique que ce token est révoqué."
+    },
+    {
+      "rule_id": "S1",
+      "decision": "suppressed",
+      "path": "docs/rotation.txt",
+      "line": 1,
+      "token_id": "release-active",
+      "state": "revoked_in_fixture",
+      "evidence": "Rotation complete: [REDACTED:release-active] is revoked in this fixture.",
+      "rationale": "L'inventaire indique que ce token est révoqué."
+    },
+    {
+      "rule_id": "S1",
+      "decision": "suppressed",
+      "path": "tests/mock.txt",
+      "line": 2,
+      "token_id": "local-test",
+      "state": "test_only",
+      "evidence": "API_TOKEN=[REDACTED:local-test]",
+      "rationale": "L'inventaire classe ce token comme marqueur de test."
+    }
+  ]
+}

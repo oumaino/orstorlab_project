@@ -27,7 +27,8 @@ inventory_path = snapshot / "inventory.json"
 # "file" est le nom donné au fichier ouvert.
 with inventory_path.open(encoding="utf-8") as file:
     inventory = json.load(file)  # Convertit le JSON en dictionnaire Python.
-
+findings = []  # Stocke les risques détectés.
+benign_decisions = []  # Stocke les occurrences exclues de S1 avec leur justification.
 
 # --- 3. Afficher les identifiants et les états, sans afficher les valeurs ---
 
@@ -119,7 +120,15 @@ for folder_name in ("app", "tests", "docs", "build"):  # Parcourt les quatre nom
 
 
                     # --- 8. Afficher le constat ---
-
+                    findings.append({  # Ajoute un constat structuré à la liste.
+                    "rule_id": "S1",  # Règle déclenchée.
+                    "path": relative_path,  # Fichier concerné.
+                    "line": line_number,  # Numéro de ligne.
+                    "token_id": token["token_id"],  # Identifiant du token, pas sa valeur.
+                    "evidence": evidence,  # Preuve déjà masquée.
+                    "rationale": "Un token actif apparaît en clair.",
+                    "next_action": "Retirer la copie et prévoir le remplacement du token exposé."
+                    })
                     # Affiche la règle, le chemin relatif et le numéro de ligne.
                     print(f"\n[S1] {relative_path}, ligne {line_number}")
 
@@ -189,6 +198,25 @@ for workflow in ci_data["workflows"]:  # Parcourt les workflows de ci.json.
     if workflow["runs_untrusted_code"] and active_refs:
         ci_finding_count += 1  # Compte cette violation S2.
 
+
+
+
+    
+
+        findings.append({
+            "rule_id": "S2",
+            "path": "ci.json",
+            "workflow_id": workflow_id,
+            "evidence": {
+                "runs_untrusted_code": workflow["runs_untrusted_code"],
+                "active_secret_refs": active_refs.copy()
+            },
+            "rationale": "Du code non fiable dispose d'un secret actif.",
+            "next_action": "Retirer les secrets actifs ou isoler leur utilisation dans un workflow fiable."
+        })
+
+
+
         print(f"\n[S2] Workflow : {workflow_id}")  # Identifie le workflow concerné.
         print(
             f"Preuve : runs_untrusted_code=true ; active secret_refs={active_refs_text}"
@@ -222,6 +250,23 @@ for workflow in ci_data["workflows"]:  # Parcourt les workflows de ci.json.
     if not permissions_allowed:  # Si les permissions ne respectent pas la politique...
         ci_finding_count += 1  # ...compte une violation S3.
 
+
+        findings.append({
+        "rule_id": "S3",
+        "path": "ci.json",
+        "workflow_id": workflow_id,
+        "evidence": {
+            "permissions": permissions,
+            "trigger": workflow["trigger"],
+            "runs_untrusted_code": workflow["runs_untrusted_code"]
+        },
+        "rationale": "Les permissions ne respectent pas la politique S3.",
+        "next_action": "Utiliser read-only, ou release-write uniquement sur tag sans code non fiable."
+        })
+
+
+
+
         print(f"\n[S3] Workflow : {workflow_id}")  # Identifie le workflow concerné.
         print(
             f"Preuve : permissions={permissions} ; "
@@ -241,6 +286,22 @@ for workflow in ci_data["workflows"]:  # Parcourt les workflows de ci.json.
 
     if workflow["log_environment"] and active_refs:  # Vérifie les deux conditions S4.
         ci_finding_count += 1  # Compte cette violation S4.
+
+
+
+        findings.append({
+        "rule_id": "S4",
+        "path": "ci.json",
+        "workflow_id": workflow_id,
+        "evidence": {
+            "log_environment": workflow["log_environment"],
+            "active_secret_refs": active_refs.copy()
+        },
+        "rationale": "La journalisation complète de l'environnement risque d'exposer un secret actif.",
+        "next_action": "Désactiver la journalisation complète de l'environnement."
+        })
+
+
 
         print(f"\n[S4] Workflow : {workflow_id}")  # Identifie le workflow concerné.
         print(
@@ -297,6 +358,19 @@ for workflow in ci_data["workflows"]:  # Examine chaque workflow.
 
         if matching_patterns:  # Au moins un motif publie ce fichier sensible.
             artifact_finding_count += 1  # Compte un constat par workflow et fichier sensible.
+
+
+            findings.append({
+            "rule_id": "S5",
+            "path": "ci.json",
+            "workflow_id": workflow_id,
+            "evidence": {
+                "sensitive_path": relative_path,
+                "matching_patterns": matching_patterns.copy()
+            },
+            "rationale": "Un fichier déclaré sensible est publié comme artefact.",
+            "next_action": "Limiter les artefacts aux fichiers non sensibles nécessaires."
+            })
 
             print(f"\n[S5] Workflow : {workflow_id}")  # Identifie le workflow.
             print(f"Fichier sensible : {relative_path}")  # Identifie le fichier publié.
@@ -364,8 +438,43 @@ for relative_path in sorted(content_paths):  # Réutilise les chemins collectés
                 reason = "L'inventaire indique que ce token est révoqué."
 
             print(f"\n[BÉNIN POUR S1] {relative_path}, ligne {line_number}")  # Localisation.
+            benign_decisions.append({
+                "rule_id": "S1",
+                "decision": "suppressed",  # Indique que cette occurrence ne déclenche pas S1.
+                "path": relative_path,
+                "line": line_number,
+                "token_id": token["token_id"],
+                "state": token["state"],
+                "evidence": evidence,  # Preuve déjà masquée.
+                "rationale": reason  # Justification déjà calculée.
+            })
             print(f"Token : {token['token_id']}")  # Identifiant uniquement.
             print(f"Preuve : {evidence}")  # Ligne avec valeurs masquées.
             print(f"Justification : {reason}")  # Explique la décision.
 
 print(f"\nTotal des occurrences bénignes : {benign_count}")  # Affiche le bilan.
+# --- 13. Exporter les résultats ---
+
+output_dir = Path("outputs") / snapshot.name  # Sépare les sorties des deux snapshots.
+output_dir.mkdir(parents=True, exist_ok=True)  # Crée les dossiers s’ils n’existent pas.
+
+report = {  # Assemble uniquement les résultats, sans exporter l’inventaire sensible.
+    "snapshot": snapshot.name,
+    "finding_count": len(findings),
+    "findings": findings,
+    "benign_decision_count": len(benign_decisions),
+    "benign_decisions": benign_decisions
+}
+
+report_path = output_dir / "findings.json"  # Définit le chemin du rapport.
+
+with report_path.open("w", encoding="utf-8") as file:  # Ouvre le fichier en écriture.
+    json.dump(
+        report,  # Données à enregistrer.
+        file,  # Fichier de destination.
+        ensure_ascii=False,  # Conserve les accents.
+        indent=2  # Rend le JSON lisible.
+    )
+    file.write("\n")  # Termine le fichier par un saut de ligne.
+
+print(f"\nRapport JSON enregistré : {report_path}")  # Confirme l’emplacement.
